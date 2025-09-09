@@ -1,0 +1,28 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: mcp-atlassian
+  namespace: {{NAMESPACE}}
+  labels:
+    app: mcp-atlassian
+    component: route
+  annotations:
+    # Enable HTTPS redirect
+    haproxy.router.openshift.io/redirect-to-https: "true"
+    # Set timeout for long-running MCP operations
+    haproxy.router.openshift.io/timeout: "300s"
+    # Enable CORS for browser-based MCP clients
+    haproxy.router.openshift.io/cors-allow-origin: "*"
+    haproxy.router.openshift.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    haproxy.router.openshift.io/cors-allow-headers: "Authorization, Content-Type, X-Atlassian-Cloud-Id, mcp-session-id"
+spec:
+  to:
+    kind: Service
+    name: mcp-atlassian
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None
