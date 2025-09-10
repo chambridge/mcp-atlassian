@@ -211,7 +211,7 @@ deploy-app: check-oc generate-manifests ## Deploy application resources to OpenS
 	oc rollout status deployment/mcp-atlassian -n $(NAMESPACE) --timeout=300s
 
 .PHONY: deploy
-deploy: check-oc push deploy-secrets deploy-app ## Full deployment (push image + deploy secrets + deploy app)
+deploy: check-oc deploy-secrets deploy-app ## Full deployment (deploy secrets + deploy app)
 	@echo "Deployment complete!"
 	@echo "Getting route URL..."
 	@oc get route mcp-atlassian -n $(NAMESPACE) -o jsonpath='{.spec.host}' 2>/dev/null || echo "Route not found"
@@ -255,3 +255,46 @@ test: ## Run tests
 .PHONY: lint
 lint: ## Run code quality checks
 	pre-commit run --all-files
+
+.PHONY: deploy-dynamic
+deploy-dynamic: check-oc ## Deploy with dynamic manifest generation (only includes used auth methods)
+	@echo "Dynamic deployment - only includes authentication methods you're using"
+	@echo "Usage examples:"
+	@echo "  make deploy-dynamic JIRA_URL=https://issues.redhat.com JIRA_PERSONAL_TOKEN=your_token"
+	@echo "  make deploy-dynamic JIRA_URL=https://company.atlassian.net JIRA_USERNAME=user@company.com JIRA_API_TOKEN=your_token"
+	@if [ -z "$(JIRA_URL)" ]; then \
+		echo "Error: JIRA_URL is required"; \
+		exit 1; \
+	fi
+	@if [ -n "$(JIRA_PERSONAL_TOKEN)" ]; then \
+		echo "Using Personal Access Token authentication"; \
+		./scripts/generate-dynamic-manifests.sh \
+			--jira-url "$(JIRA_URL)" \
+			--jira-pat "$(JIRA_PERSONAL_TOKEN)" \
+			--namespace "$(NAMESPACE)" \
+			--enable-confluence "$(ENABLE_CONFLUENCE)" \
+			--read-only "$(READ_ONLY_MODE)" \
+			--verbose "$(MCP_VERBOSE)" \
+			--transport "$(TRANSPORT)" \
+			--port "$(MCP_PORT)"; \
+	elif [ -n "$(JIRA_API_TOKEN)" ] && [ -n "$(JIRA_USERNAME)" ]; then \
+		echo "Using API Token authentication"; \
+		./scripts/generate-dynamic-manifests.sh \
+			--jira-url "$(JIRA_URL)" \
+			--jira-api "$(JIRA_USERNAME)" "$(JIRA_API_TOKEN)" \
+			--namespace "$(NAMESPACE)" \
+			--enable-confluence "$(ENABLE_CONFLUENCE)" \
+			--read-only "$(READ_ONLY_MODE)" \
+			--verbose "$(MCP_VERBOSE)" \
+			--transport "$(TRANSPORT)" \
+			--port "$(MCP_PORT)"; \
+	else \
+		echo "Error: Either JIRA_PERSONAL_TOKEN or (JIRA_USERNAME + JIRA_API_TOKEN) is required"; \
+		exit 1; \
+	fi
+	@echo "Deploying generated manifests..."
+	oc apply -f $(ARTIFACTS_DIR)/ -n $(NAMESPACE)
+	@echo "Waiting for deployment to be ready..."
+	oc rollout status deployment/mcp-atlassian -n $(NAMESPACE) --timeout=300s
+	@echo "Dynamic deployment complete!"
+	@echo "Route URL: https://$$(oc get route mcp-atlassian -n $(NAMESPACE) -o jsonpath='{.spec.host}')"

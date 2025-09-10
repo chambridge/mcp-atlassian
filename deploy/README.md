@@ -105,6 +105,70 @@ make status
 oc get route mcp-atlassian -n default -o jsonpath='{.spec.host}'
 ```
 
+## Dynamic Deployment (Recommended for Clean Auth)
+
+**New in this version**: Dynamic deployment only includes the authentication method you're actually using, preventing authentication confusion that can cause "JSON decode errors" in Claude Code.
+
+### Why Use Dynamic Deployment?
+- **Cleaner Configuration**: Only includes environment variables for your chosen auth method
+- **Prevents Auth Confusion**: Eliminates empty auth variables that can confuse the MCP server
+- **Better Debugging**: Easier to troubleshoot authentication issues
+- **Claude Code Compatible**: Reduces connection issues with MCP clients
+
+### Dynamic Deployment Options
+
+#### Option A: Personal Access Token (Recommended)
+```bash
+# Deploy Jira-only with PAT (read-only by default)
+make deploy-dynamic \
+  JIRA_URL=https://jira.your-company.com \
+  JIRA_PERSONAL_TOKEN=your_jira_personal_access_token
+
+# Enable write operations
+make deploy-dynamic \
+  JIRA_URL=https://jira.your-company.com \
+  JIRA_PERSONAL_TOKEN=your_jira_personal_access_token \
+  READ_ONLY_MODE=false
+```
+
+#### Option B: API Token (Cloud)
+```bash
+# Deploy Jira-only with API Token (read-only by default)
+make deploy-dynamic \
+  JIRA_URL=https://your-company.atlassian.net \
+  JIRA_USERNAME=your.email@company.com \
+  JIRA_API_TOKEN=your_jira_api_token
+
+# Enable write operations
+make deploy-dynamic \
+  JIRA_URL=https://your-company.atlassian.net \
+  JIRA_USERNAME=your.email@company.com \
+  JIRA_API_TOKEN=your_jira_api_token \
+  READ_ONLY_MODE=false
+```
+
+#### Option C: Manual Script Usage
+For advanced configurations, use the script directly:
+```bash
+# Personal Access Token
+./scripts/generate-dynamic-manifests.sh \
+  --jira-url https://jira.your-company.com \
+  --jira-pat your_token \
+  --namespace default \
+  --read-only true
+
+# API Token
+./scripts/generate-dynamic-manifests.sh \
+  --jira-url https://company.atlassian.net \
+  --jira-api user@company.com your_token \
+  --enable-confluence true \
+  --confluence-url https://confluence.company.com \
+  --confluence-pat confluence_token
+
+# Deploy generated manifests
+oc apply -f deploy/artifacts/ -n default
+```
+
 ## Step-by-Step Deployment
 
 ### Step 1: Prepare Your Environment
@@ -216,7 +280,7 @@ curl https://$(oc get route mcp-atlassian -o jsonpath='{.spec.host}')/healthz
 |----------|---------|-------------|
 | `NAMESPACE` | `default` | OpenShift namespace |
 | `MCP_PORT` | `8000` | Port for MCP server |
-| `TRANSPORT` | `streamable-http` | Transport type (`streamable-http`, `sse`) |
+| `TRANSPORT` | `sse` | Transport type (`sse`, `streamable-http`) |
 | `READ_ONLY_MODE` | `true` | **Security default**: Disable write operations |
 | `MCP_VERBOSE` | `true` | Enable verbose logging |
 | `ENABLE_CONFLUENCE` | `false` | **Jira-only default**: Enable Confluence support |
@@ -243,53 +307,59 @@ make deploy \
 
 ## Using with Claude Code
 
-### Option 1: Direct URL Configuration
+### Option 1: MCP Add Command (Recommended - Simple Setup)
 
-Configure Claude Code to connect to your deployed MCP server:
+Use the `mcp add` command when the MCP server is deployed with fixed authentication credentials:
+
+```bash
+# Get your route URL first
+ROUTE_URL=$(oc get route mcp-atlassian -o jsonpath='{.spec.host}')
+
+# Add to Claude Code with SSE transport type (REQUIRED for proper connection)
+claude mcp add ocp-atlassian --transport sse https://$ROUTE_URL/sse
+```
+
+**Important Notes**: 
+- The `--transport sse` flag is **required** for proper connection to OpenShift-deployed MCP servers
+- This works when the MCP server is deployed with authentication credentials baked into the deployment (via JIRA_PERSONAL_TOKEN or JIRA_API_TOKEN environment variables)
+- All Claude Code users will share the same Atlassian credentials configured in the deployment
+- If you get "JSON decode errors", use `make deploy-dynamic` instead of `make deploy` to avoid authentication confusion
+
+### Option 2: Manual JSON Configuration (Simple - No Per-User Authentication)
+
+Alternatively, configure Claude Code manually by editing the configuration file when using shared credentials:
 
 ```json
 {
   "mcpServers": {
     "mcp-atlassian": {
-      "url": "https://your-mcp-route.apps.openshift.com/mcp"
+      "url": "https://your-mcp-route.apps.openshift.com/sse"
     }
   }
 }
 ```
 
-### Option 2: With Authentication Headers (Multi-User Setup)
+### Option 3: Per-User Authentication (Advanced Multi-User Setup)
 
-For multi-user scenarios where each user has their own tokens:
+**Important**: The current deployment templates configure authentication at the pod level. For true per-user authentication, you would need to modify the deployment to accept authentication headers and pass them through to Atlassian APIs. 
+
+For development/testing of per-user authentication:
 
 ```json
 {
   "mcpServers": {
     "mcp-atlassian": {
-      "url": "https://your-mcp-route.apps.openshift.com/mcp",
+      "url": "https://your-mcp-route.apps.openshift.com/sse",
       "headers": {
-        "Authorization": "Bearer YOUR_OAUTH_TOKEN"
+        "X-Jira-Personal-Token": "YOUR_PERSONAL_ACCESS_TOKEN",
+        "X-Jira-Username": "your.email@company.com"
       }
     }
   }
 }
 ```
 
-### Option 3: Using PAT Authentication (Server/DC)
-
-For Server/Data Center with Personal Access Tokens:
-
-```json
-{
-  "mcpServers": {
-    "mcp-atlassian": {
-      "url": "https://your-mcp-route.apps.openshift.com/mcp",
-      "headers": {
-        "Authorization": "Token YOUR_PERSONAL_ACCESS_TOKEN"
-      }
-    }
-  }
-}
-```
+**Note**: This requires modifying the MCP server to read authentication from request headers instead of environment variables. The current implementation uses environment variables for security and simplicity.
 
 ## Advanced Configuration
 
@@ -333,13 +403,38 @@ Edit `templates/deployment.yaml.template` to adjust:
 ### Common Issues
 
 #### 1. Authentication Failures
+
+**JSON Decode Error when using Claude Code:**
+If you get a JSON decode error when Claude Code tries to connect, this is often caused by authentication confusion due to empty environment variables for unused authentication methods.
+
 ```bash
-# Check secrets
+# Check if the MCP server was deployed with authentication
 oc get secret mcp-atlassian-secrets -n default -o yaml
 
+# Look for authentication-related environment variables (check for empty values)
+oc get deployment mcp-atlassian -n default -o yaml | grep -A 10 -B 10 -i "jira\|confluence"
+
 # Check logs for auth errors
-make logs | grep -i "auth\|401\|403"
+make logs | grep -i "auth\|401\|403\|invalid\|token"
+
+# Test the health endpoint directly
+curl https://$(oc get route mcp-atlassian -o jsonpath='{.spec.host}')/healthz
 ```
+
+**Recommended Solution**: Use dynamic deployment to avoid authentication confusion:
+```bash
+# Undeploy current version
+make undeploy
+
+# Redeploy with dynamic deployment (only includes auth method you're using)
+make deploy-dynamic JIRA_URL=... JIRA_PERSONAL_TOKEN=...
+# OR
+make deploy-dynamic JIRA_URL=... JIRA_USERNAME=... JIRA_API_TOKEN=...
+```
+
+**Alternative Solution**: If using regular deployment, ensure you deployed with either:
+- Personal Access Token: `make deploy JIRA_URL=... JIRA_PERSONAL_TOKEN=...`
+- API Token: `make deploy JIRA_URL=... JIRA_USERNAME=... JIRA_API_TOKEN=...`
 
 #### 2. Network Connectivity
 ```bash
