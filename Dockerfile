@@ -1,5 +1,13 @@
-# Use a Python image with uv pre-installed
-FROM ghcr.io/astral-sh/uv:python3.10-alpine AS uv
+# Build stage using Red Hat UBI with Python 3.11
+FROM registry.access.redhat.com/ubi9/python-311 AS builder
+
+# Install uv for dependency management
+USER root
+RUN dnf install -y wget && \
+    wget -qO- https://astral.sh/uv/install.sh | sh && \
+    mv /opt/app-root/src/.local/bin/uv /usr/local/bin/uv && \
+    mv /opt/app-root/src/.local/bin/uvx /usr/local/bin/uvx && \
+    dnf clean all
 
 # Install the project into `/app`
 WORKDIR /app
@@ -29,15 +37,21 @@ RUN find /app/.venv -name '__pycache__' -type d -exec rm -rf {} + && \
     find /app/.venv -name '*.pyo' -delete && \
     echo "Cleaned up .venv"
 
-# Final stage
-FROM python:3.10-alpine
+# Final stage using Red Hat UBI minimal
+FROM registry.access.redhat.com/ubi9/ubi-minimal
+
+# Install Python runtime in minimal UBI
+RUN microdnf install -y python3.11 python3.11-pip && \
+    microdnf clean all
 
 # Create a non-root user 'app'
-RUN adduser -D -h /home/app -s /bin/sh app
+RUN useradd -r -d /home/app -s /bin/bash app && \
+    mkdir -p /home/app && \
+    chown app:app /home/app
 WORKDIR /app
 USER app
 
-COPY --from=uv --chown=app:app /app/.venv /app/.venv
+COPY --from=builder --chown=app:app /app/.venv /app/.venv
 
 # Place executables in the environment at the front of the path
 ENV PATH="/app/.venv/bin:$PATH"
