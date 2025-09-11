@@ -12,7 +12,7 @@ This guide provides step-by-step instructions for deploying the MCP Atlassian se
 ### Required Information
 - **Jira Configuration** (Required):
   - Jira URL (e.g., `https://your-company.atlassian.net` or `https://jira.your-company.com`)
-  
+
   **Choose ONE authentication method:**
   - **Personal Access Token** (Recommended for Server/DC, also works for Cloud):
     - Jira Personal Access Token ([Generate in Jira profile settings](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/))
@@ -37,6 +37,8 @@ oc login https://your-openshift-cluster.com
 ```
 
 ### 2. Deploy MCP Atlassian (Jira-Only, Default)
+
+**Corporate Firewall Users**: If you're behind a corporate firewall, add proxy settings to all deployment commands. See [Corporate Proxy Configuration](#corporate-proxy-configuration) section.
 
 #### Option A: Personal Access Token (Recommended)
 ```bash
@@ -105,6 +107,166 @@ make status
 oc get route mcp-atlassian -n default -o jsonpath='{.spec.host}'
 ```
 
+## Corporate Proxy Configuration
+
+### Overview
+
+If you're deploying behind a corporate firewall, you'll need to configure proxy settings so the MCP Atlassian server can reach external Atlassian APIs. The deployment system supports comprehensive proxy configuration with both global and service-specific settings.
+
+### Supported Proxy Types
+
+- **HTTP Proxy**: For HTTP traffic
+- **HTTPS Proxy**: For HTTPS traffic (most common for Atlassian APIs)
+- **Service-Specific Proxies**: Different proxies for Jira vs Confluence
+- **Bypass Lists**: Hosts that should not use the proxy
+
+### Corporate Example
+
+Many companies use Squid proxy for corporate firewall management. Here's how to deploy with common corporate proxy settings:
+
+#### Basic Corporate Deployment
+```bash
+# Deploy with corporate proxy
+make deploy-dynamic \
+  JIRA_URL=https://jira.corp.acme.com \
+  JIRA_PERSONAL_TOKEN=your_token \
+  HTTP_PROXY=http://squid.corp.acme.com:3128 \
+  HTTPS_PROXY=http://squid.corp.acme.com:3128 \
+  NO_PROXY=localhost,127.0.0.1,.corp.acme.com,.acme.com
+```
+
+#### Advanced Corporate Deployment with Confluence
+```bash
+# Full corporate deployment with Confluence
+make deploy-dynamic \
+  ENABLE_CONFLUENCE=true \
+  JIRA_URL=https://jira.corp.acme.com \
+  JIRA_PERSONAL_TOKEN=your_jira_token \
+  CONFLUENCE_URL=https://confluence.corp.acme.com \
+  CONFLUENCE_PERSONAL_TOKEN=your_confluence_token \
+  HTTP_PROXY=http://squid.corp.acme.com:3128 \
+  HTTPS_PROXY=http://squid.corp.acme.com:3128 \
+  NO_PROXY=localhost,127.0.0.1,.corp.acme.com,.acme.com \
+  READ_ONLY_MODE=false
+```
+
+### Generic Corporate Proxy Configuration
+
+#### Basic Proxy Deployment
+```bash
+# Deploy with corporate proxy
+make deploy-dynamic \
+  JIRA_URL=https://jira.your-company.com \
+  JIRA_PERSONAL_TOKEN=your_token \
+  HTTP_PROXY=http://proxy.corp.company.com:8080 \
+  HTTPS_PROXY=http://proxy.corp.company.com:8080 \
+  NO_PROXY=localhost,127.0.0.1,.corp.company.com
+```
+
+#### Service-Specific Proxy Configuration
+```bash
+# Different proxies for Jira and Confluence
+make deploy-dynamic \
+  ENABLE_CONFLUENCE=true \
+  JIRA_URL=https://jira.company.com \
+  JIRA_PERSONAL_TOKEN=jira_token \
+  CONFLUENCE_URL=https://confluence.company.com \
+  CONFLUENCE_PERSONAL_TOKEN=confluence_token \
+  JIRA_HTTP_PROXY=http://jira-proxy.corp.company.com:8080 \
+  JIRA_HTTPS_PROXY=http://jira-proxy.corp.company.com:8080 \
+  CONFLUENCE_HTTP_PROXY=http://confluence-proxy.corp.company.com:8080 \
+  CONFLUENCE_HTTPS_PROXY=http://confluence-proxy.corp.company.com:8080 \
+  NO_PROXY=localhost,127.0.0.1,.corp.company.com
+```
+
+### Proxy Configuration Options
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `HTTP_PROXY` | Global HTTP proxy URL | `http://proxy.corp.com:8080` |
+| `HTTPS_PROXY` | Global HTTPS proxy URL | `http://proxy.corp.com:8080` |
+| `NO_PROXY` | Comma-separated bypass hosts | `localhost,.corp.com,127.0.0.1` |
+| `JIRA_HTTP_PROXY` | Jira-specific HTTP proxy (overrides `HTTP_PROXY`) | `http://jira-proxy.corp.com:8080` |
+| `JIRA_HTTPS_PROXY` | Jira-specific HTTPS proxy (overrides `HTTPS_PROXY`) | `http://jira-proxy.corp.com:8080` |
+| `CONFLUENCE_HTTP_PROXY` | Confluence-specific HTTP proxy | `http://conf-proxy.corp.com:8080` |
+| `CONFLUENCE_HTTPS_PROXY` | Confluence-specific HTTPS proxy | `http://conf-proxy.corp.com:8080` |
+
+### Proxy Authentication
+
+If your corporate proxy requires authentication, include credentials in the URL:
+
+```bash
+# Proxy with authentication
+make deploy-dynamic \
+  JIRA_URL=https://jira.company.com \
+  JIRA_PERSONAL_TOKEN=your_token \
+  HTTP_PROXY=http://username:password@proxy.corp.company.com:8080 \
+  HTTPS_PROXY=http://username:password@proxy.corp.company.com:8080
+```
+
+### Script-Based Proxy Configuration
+
+For advanced configurations, use the dynamic manifest script directly:
+
+```bash
+# Corporate proxy configuration with script
+./scripts/generate-dynamic-manifests.sh \
+  --jira-url https://jira.corp.acme.com \
+  --jira-pat your_token \
+  --http-proxy http://squid.corp.acme.com:3128 \
+  --https-proxy http://squid.corp.acme.com:3128 \
+  --no-proxy localhost,127.0.0.1,.corp.acme.com \
+  --namespace mcp-atlassian \
+  --read-only false
+
+# Deploy generated manifests
+oc apply -f deploy/artifacts/ -n mcp-atlassian
+```
+
+### Troubleshooting Proxy Issues
+
+#### 1. Test Proxy Connectivity
+```bash
+# Test from your local machine
+curl -x http://squid.corp.acme.com:3128 https://jira.corp.acme.com
+
+# Test from inside OpenShift (after deployment)
+oc exec -it deployment/mcp-atlassian -- curl -x http://squid.corp.acme.com:3128 https://jira.corp.acme.com
+```
+
+#### 2. Check Proxy Environment Variables
+```bash
+# Verify proxy settings in the deployment
+oc get deployment mcp-atlassian -o yaml | grep -A 20 -B 5 -i proxy
+
+# Check secret values (base64 encoded)
+oc get secret mcp-atlassian-secrets -o yaml | grep -i proxy
+```
+
+#### 3. Review Logs for Proxy Errors
+```bash
+# Look for proxy-related errors
+make logs | grep -i "proxy\|connection\|timeout\|resolve"
+
+# Look for specific connection errors
+make logs | grep -E "ProxyError|ConnectTimeout|ConnectionError"
+```
+
+#### 4. Common Issues and Solutions
+
+**Connection Timeout**:
+- Verify proxy URL is correct
+- Check if proxy requires authentication
+- Ensure NO_PROXY doesn't accidentally exclude your target hosts
+
+**Authentication Failed**:
+- Verify proxy credentials are correct
+- Try URL-encoding special characters in the proxy URL
+
+**DNS Resolution Issues**:
+- Add your internal domains to NO_PROXY
+- Example: `NO_PROXY=localhost,127.0.0.1,.corp.acme.com,.acme.com`
+
 ## Dynamic Deployment (Recommended for Clean Auth)
 
 **New in this version**: Dynamic deployment only includes the authentication method you're actually using, preventing authentication confusion that can cause "JSON decode errors" in Claude Code.
@@ -129,6 +291,14 @@ make deploy-dynamic \
   JIRA_URL=https://jira.your-company.com \
   JIRA_PERSONAL_TOKEN=your_jira_personal_access_token \
   READ_ONLY_MODE=false
+
+# Deploy with corporate proxy
+make deploy-dynamic \
+  JIRA_URL=https://jira.corp.acme.com \
+  JIRA_PERSONAL_TOKEN=your_jira_personal_access_token \
+  HTTP_PROXY=http://squid.corp.acme.com:3128 \
+  HTTPS_PROXY=http://squid.corp.acme.com:3128 \
+  NO_PROXY=localhost,127.0.0.1,.corp.acme.com
 ```
 
 #### Option B: API Token (Cloud)
@@ -145,6 +315,15 @@ make deploy-dynamic \
   JIRA_USERNAME=your.email@company.com \
   JIRA_API_TOKEN=your_jira_api_token \
   READ_ONLY_MODE=false
+
+# Deploy with corporate proxy
+make deploy-dynamic \
+  JIRA_URL=https://your-company.atlassian.net \
+  JIRA_USERNAME=your.email@company.com \
+  JIRA_API_TOKEN=your_jira_api_token \
+  HTTP_PROXY=http://proxy.corp.company.com:8080 \
+  HTTPS_PROXY=http://proxy.corp.company.com:8080 \
+  NO_PROXY=localhost,127.0.0.1,.corp.company.com
 ```
 
 #### Option C: Manual Script Usage
@@ -319,7 +498,7 @@ ROUTE_URL=$(oc get route mcp-atlassian -o jsonpath='{.spec.host}')
 claude mcp add ocp-atlassian --transport sse https://$ROUTE_URL/sse
 ```
 
-**Important Notes**: 
+**Important Notes**:
 - The `--transport sse` flag is **required** for proper connection to OpenShift-deployed MCP servers
 - This works when the MCP server is deployed with authentication credentials baked into the deployment (via JIRA_PERSONAL_TOKEN or JIRA_API_TOKEN environment variables)
 - All Claude Code users will share the same Atlassian credentials configured in the deployment
@@ -341,7 +520,7 @@ Alternatively, configure Claude Code manually by editing the configuration file 
 
 ### Option 3: Per-User Authentication (Advanced Multi-User Setup)
 
-**Important**: The current deployment templates configure authentication at the pod level. For true per-user authentication, you would need to modify the deployment to accept authentication headers and pass them through to Atlassian APIs. 
+**Important**: The current deployment templates configure authentication at the pod level. For true per-user authentication, you would need to modify the deployment to accept authentication headers and pass them through to Atlassian APIs.
 
 For development/testing of per-user authentication:
 

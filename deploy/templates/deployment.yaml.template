@@ -38,7 +38,7 @@ spec:
           value: "{{MCP_PORT}}"
         - name: HOST
           value: "0.0.0.0"
-        
+
         # Operational Configuration
         - name: READ_ONLY_MODE
           value: "{{READ_ONLY_MODE}}"
@@ -46,24 +46,24 @@ spec:
           value: "{{MCP_VERBOSE}}"
         - name: MCP_LOGGING_STDOUT
           value: "true"
-        
+
         # Optional: Content Filtering (uncomment and configure as needed)
         # - name: CONFLUENCE_SPACES_FILTER
         #   value: "DEV,TEAM,DOC"
         # - name: JIRA_PROJECTS_FILTER
         #   value: "PROJ,DEVOPS"
-        
+
         # Optional: Tool Filtering (uncomment to restrict available tools)
         # - name: ENABLED_TOOLS
         #   value: "confluence_search,jira_get_issue,jira_search"
-        
+
         # Jira Authentication from secrets (Required)
         - name: JIRA_URL
           valueFrom:
             secretKeyRef:
               name: mcp-atlassian-secrets
               key: JIRA_URL
-        
+
         # Jira Authentication Method 1: API Token (Cloud)
         - name: JIRA_USERNAME
           valueFrom:
@@ -77,7 +77,7 @@ spec:
               name: mcp-atlassian-secrets
               key: JIRA_API_TOKEN
               optional: true
-        
+
         # Jira Authentication Method 2: Personal Access Token (Server/DC or Cloud)
         - name: JIRA_PERSONAL_TOKEN
           valueFrom:
@@ -85,7 +85,7 @@ spec:
               name: mcp-atlassian-secrets
               key: JIRA_PERSONAL_TOKEN
               optional: true
-        
+
         # Confluence Authentication from secrets (Optional - only if ENABLE_CONFLUENCE=true)
         - name: CONFLUENCE_URL
           valueFrom:
@@ -111,7 +111,7 @@ spec:
               name: mcp-atlassian-secrets
               key: CONFLUENCE_PERSONAL_TOKEN
               optional: true
-        
+
         # Optional: OAuth Configuration (uncomment if using OAuth)
         # - name: ATLASSIAN_OAUTH_CLIENT_ID
         #   valueFrom:
@@ -131,7 +131,7 @@ spec:
         #       name: mcp-atlassian-secrets
         #       key: ATLASSIAN_OAUTH_CLOUD_ID
         #       optional: true
-        
+
         # Health and readiness probes
         livenessProbe:
           httpGet:
@@ -149,7 +149,7 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 3
           failureThreshold: 3
-        
+
         # Resource limits and requests
         resources:
           requests:
@@ -158,7 +158,7 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
-        
+
         # Security context
         securityContext:
           allowPrivilegeEscalation: false
@@ -169,20 +169,20 @@ spec:
           capabilities:
             drop:
             - ALL
-        
+
         # Volume mounts (for OAuth token storage if needed)
         volumeMounts:
         - name: tmp
           mountPath: /tmp
         - name: oauth-cache
           mountPath: /home/app/.mcp-atlassian
-      
+
       # Volumes
       volumes:
       - name: tmp
         emptyDir: {}
       - name: oauth-cache
         emptyDir: {}
-      
+
       # Restart policy
       restartPolicy: Always

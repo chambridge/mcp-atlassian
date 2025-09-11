@@ -40,7 +40,7 @@ Authentication (choose one):
   --jira-api USERNAME TOKEN      API Token with username
 
 Optional Confluence:
-  --confluence-url URL           Confluence instance URL  
+  --confluence-url URL           Confluence instance URL
   --confluence-pat TOKEN         Confluence Personal Access Token
   --confluence-api USERNAME TOKEN Confluence API Token with username
 
@@ -53,16 +53,31 @@ Configuration:
   --verbose BOOL                 Verbose logging (default: true)
   --enable-confluence BOOL       Enable Confluence (default: false)
 
+Proxy Configuration (Corporate Firewalls):
+  --http-proxy URL               HTTP proxy URL (e.g., http://proxy.corp.com:8080)
+  --https-proxy URL              HTTPS proxy URL (e.g., http://proxy.corp.com:8080)
+  --no-proxy HOSTS               Comma-separated bypass hosts (e.g., localhost,.corp.com)
+  --jira-http-proxy URL          Jira-specific HTTP proxy (overrides --http-proxy)
+  --jira-https-proxy URL         Jira-specific HTTPS proxy (overrides --https-proxy)
+  --confluence-http-proxy URL    Confluence-specific HTTP proxy
+  --confluence-https-proxy URL   Confluence-specific HTTPS proxy
+
 Examples:
   # Personal Access Token (recommended)
-  $0 --jira-url https://issues.redhat.com --jira-pat your_token
+  $0 --jira-url https://jira.corp.acme.com --jira-pat your_token
 
-  # API Token  
+  # API Token
   $0 --jira-url https://company.atlassian.net --jira-api user@company.com your_token
 
   # With Confluence
-  $0 --jira-url https://issues.redhat.com --jira-pat jira_token \\
-     --enable-confluence true --confluence-url https://confluence.company.com --confluence-pat conf_token
+  $0 --jira-url https://jira.corp.acme.com --jira-pat jira_token \\
+     --enable-confluence true --confluence-url https://confluence.corp.acme.com --confluence-pat conf_token
+
+  # With Corporate Proxy
+  $0 --jira-url https://jira.corp.acme.com --jira-pat your_token \\
+     --http-proxy http://squid.corp.acme.com:3128 \\
+     --https-proxy http://squid.corp.acme.com:3128 \\
+     --no-proxy localhost,127.0.0.1,.corp.acme.com
 
 EOF
 }
@@ -128,6 +143,34 @@ while [[ $# -gt 0 ]]; do
             ENABLE_CONFLUENCE="$2"
             shift 2
             ;;
+        --http-proxy)
+            HTTP_PROXY="$2"
+            shift 2
+            ;;
+        --https-proxy)
+            HTTPS_PROXY="$2"
+            shift 2
+            ;;
+        --no-proxy)
+            NO_PROXY="$2"
+            shift 2
+            ;;
+        --jira-http-proxy)
+            JIRA_HTTP_PROXY="$2"
+            shift 2
+            ;;
+        --jira-https-proxy)
+            JIRA_HTTPS_PROXY="$2"
+            shift 2
+            ;;
+        --confluence-http-proxy)
+            CONFLUENCE_HTTP_PROXY="$2"
+            shift 2
+            ;;
+        --confluence-https-proxy)
+            CONFLUENCE_HTTPS_PROXY="$2"
+            shift 2
+            ;;
         -h|--help)
             show_usage
             exit 0
@@ -183,7 +226,7 @@ type: Opaque
 stringData:
   # Jira Configuration (Required)
   JIRA_URL: "$JIRA_URL"
-  
+
 EOF
 
 # Add Jira authentication based on method
@@ -191,14 +234,14 @@ if [[ "$JIRA_AUTH_METHOD" == "pat" ]]; then
     cat >> "$ARTIFACTS_DIR/secrets.yaml" << EOF
   # Jira Authentication: Personal Access Token
   JIRA_PERSONAL_TOKEN: "$JIRA_PERSONAL_TOKEN"
-  
+
 EOF
 elif [[ "$JIRA_AUTH_METHOD" == "api" ]]; then
     cat >> "$ARTIFACTS_DIR/secrets.yaml" << EOF
   # Jira Authentication: API Token
   JIRA_USERNAME: "$JIRA_USERNAME"
   JIRA_API_TOKEN: "$JIRA_API_TOKEN"
-  
+
 EOF
 fi
 
@@ -207,23 +250,71 @@ if [[ "$ENABLE_CONFLUENCE" == "true" ]]; then
     cat >> "$ARTIFACTS_DIR/secrets.yaml" << EOF
   # Confluence Configuration
   CONFLUENCE_URL: "$CONFLUENCE_URL"
-  
+
 EOF
-    
+
     if [[ "$CONFLUENCE_AUTH_METHOD" == "pat" ]]; then
         cat >> "$ARTIFACTS_DIR/secrets.yaml" << EOF
   # Confluence Authentication: Personal Access Token
   CONFLUENCE_PERSONAL_TOKEN: "$CONFLUENCE_PERSONAL_TOKEN"
-  
+
 EOF
     elif [[ "$CONFLUENCE_AUTH_METHOD" == "api" ]]; then
         cat >> "$ARTIFACTS_DIR/secrets.yaml" << EOF
   # Confluence Authentication: API Token
   CONFLUENCE_USERNAME: "$CONFLUENCE_USERNAME"
   CONFLUENCE_API_TOKEN: "$CONFLUENCE_API_TOKEN"
-  
+
 EOF
     fi
+fi
+
+# Add proxy configuration if provided
+if [[ -n "${HTTP_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/secrets.yaml" << EOF
+  # Global Proxy Configuration
+  HTTP_PROXY: "$HTTP_PROXY"
+EOF
+fi
+
+if [[ -n "${HTTPS_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/secrets.yaml" << EOF
+  HTTPS_PROXY: "$HTTPS_PROXY"
+EOF
+fi
+
+if [[ -n "${NO_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/secrets.yaml" << EOF
+  NO_PROXY: "$NO_PROXY"
+EOF
+fi
+
+# Add Jira-specific proxy configuration if provided
+if [[ -n "${JIRA_HTTP_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/secrets.yaml" << EOF
+  # Jira-Specific Proxy Configuration
+  JIRA_HTTP_PROXY: "$JIRA_HTTP_PROXY"
+EOF
+fi
+
+if [[ -n "${JIRA_HTTPS_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/secrets.yaml" << EOF
+  JIRA_HTTPS_PROXY: "$JIRA_HTTPS_PROXY"
+EOF
+fi
+
+# Add Confluence-specific proxy configuration if provided
+if [[ -n "${CONFLUENCE_HTTP_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/secrets.yaml" << EOF
+  # Confluence-Specific Proxy Configuration
+  CONFLUENCE_HTTP_PROXY: "$CONFLUENCE_HTTP_PROXY"
+EOF
+fi
+
+if [[ -n "${CONFLUENCE_HTTPS_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/secrets.yaml" << EOF
+  CONFLUENCE_HTTPS_PROXY: "$CONFLUENCE_HTTPS_PROXY"
+EOF
 fi
 
 # Add service configuration
@@ -276,7 +367,7 @@ spec:
           value: "$MCP_PORT"
         - name: HOST
           value: "0.0.0.0"
-        
+
         # Operational Configuration
         - name: READ_ONLY_MODE
           value: "$READ_ONLY_MODE"
@@ -284,14 +375,14 @@ spec:
           value: "$MCP_VERBOSE"
         - name: MCP_LOGGING_STDOUT
           value: "true"
-        
+
         # Jira Configuration (Required)
         - name: JIRA_URL
           valueFrom:
             secretKeyRef:
               name: mcp-atlassian-secrets
               key: JIRA_URL
-        
+
 EOF
 
 # Add Jira authentication environment variables based on method
@@ -303,7 +394,7 @@ if [[ "$JIRA_AUTH_METHOD" == "pat" ]]; then
             secretKeyRef:
               name: mcp-atlassian-secrets
               key: JIRA_PERSONAL_TOKEN
-        
+
 EOF
 elif [[ "$JIRA_AUTH_METHOD" == "api" ]]; then
     cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
@@ -318,7 +409,7 @@ elif [[ "$JIRA_AUTH_METHOD" == "api" ]]; then
             secretKeyRef:
               name: mcp-atlassian-secrets
               key: JIRA_API_TOKEN
-        
+
 EOF
 fi
 
@@ -331,9 +422,9 @@ if [[ "$ENABLE_CONFLUENCE" == "true" ]]; then
             secretKeyRef:
               name: mcp-atlassian-secrets
               key: CONFLUENCE_URL
-        
+
 EOF
-    
+
     if [[ "$CONFLUENCE_AUTH_METHOD" == "pat" ]]; then
         cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
         # Confluence Authentication: Personal Access Token
@@ -342,7 +433,7 @@ EOF
             secretKeyRef:
               name: mcp-atlassian-secrets
               key: CONFLUENCE_PERSONAL_TOKEN
-        
+
 EOF
     elif [[ "$CONFLUENCE_AUTH_METHOD" == "api" ]]; then
         cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
@@ -357,9 +448,92 @@ EOF
             secretKeyRef:
               name: mcp-atlassian-secrets
               key: CONFLUENCE_API_TOKEN
-        
+
 EOF
     fi
+fi
+
+# Add proxy configuration if provided
+if [[ -n "${HTTP_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
+        # Global Proxy Configuration
+        - name: HTTP_PROXY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-atlassian-secrets
+              key: HTTP_PROXY
+
+EOF
+fi
+
+if [[ -n "${HTTPS_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
+        - name: HTTPS_PROXY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-atlassian-secrets
+              key: HTTPS_PROXY
+
+EOF
+fi
+
+if [[ -n "${NO_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
+        - name: NO_PROXY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-atlassian-secrets
+              key: NO_PROXY
+
+EOF
+fi
+
+# Add Jira-specific proxy configuration if provided
+if [[ -n "${JIRA_HTTP_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
+        # Jira-Specific Proxy Configuration
+        - name: JIRA_HTTP_PROXY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-atlassian-secrets
+              key: JIRA_HTTP_PROXY
+
+EOF
+fi
+
+if [[ -n "${JIRA_HTTPS_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
+        - name: JIRA_HTTPS_PROXY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-atlassian-secrets
+              key: JIRA_HTTPS_PROXY
+
+EOF
+fi
+
+# Add Confluence-specific proxy configuration if provided
+if [[ -n "${CONFLUENCE_HTTP_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
+        # Confluence-Specific Proxy Configuration
+        - name: CONFLUENCE_HTTP_PROXY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-atlassian-secrets
+              key: CONFLUENCE_HTTP_PROXY
+
+EOF
+fi
+
+if [[ -n "${CONFLUENCE_HTTPS_PROXY:-}" ]]; then
+    cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
+        - name: CONFLUENCE_HTTPS_PROXY
+          valueFrom:
+            secretKeyRef:
+              name: mcp-atlassian-secrets
+              key: CONFLUENCE_HTTPS_PROXY
+
+EOF
 fi
 
 # Complete the deployment.yaml with remaining configuration
@@ -381,7 +555,7 @@ cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
           periodSeconds: 10
           timeoutSeconds: 3
           failureThreshold: 3
-        
+
         # Resource limits and requests
         resources:
           requests:
@@ -390,7 +564,7 @@ cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
           limits:
             memory: "512Mi"
             cpu: "500m"
-        
+
         # Security context
         securityContext:
           allowPrivilegeEscalation: false
@@ -401,21 +575,21 @@ cat >> "$ARTIFACTS_DIR/deployment.yaml" << EOF
           capabilities:
             drop:
             - ALL
-        
+
         # Volume mounts (for OAuth token storage if needed)
         volumeMounts:
         - name: tmp
           mountPath: /tmp
         - name: oauth-cache
           mountPath: /home/app/.mcp-atlassian
-      
+
       # Volumes
       volumes:
       - name: tmp
         emptyDir: {}
       - name: oauth-cache
         emptyDir: {}
-      
+
       # Restart policy
       restartPolicy: Always
 EOF
@@ -440,7 +614,7 @@ else
     echo ")"
 fi
 echo "  - $ARTIFACTS_DIR/deployment.yaml"
-echo "  - $ARTIFACTS_DIR/service.yaml"  
+echo "  - $ARTIFACTS_DIR/service.yaml"
 echo "  - $ARTIFACTS_DIR/route.yaml"
 echo ""
 echo "To deploy:"

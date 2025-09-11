@@ -38,6 +38,15 @@ READ_ONLY_MODE ?= true
 MCP_VERBOSE ?= true
 ENABLE_CONFLUENCE ?= false
 
+# Proxy configuration (for corporate firewalls)
+HTTP_PROXY ?=
+HTTPS_PROXY ?=
+NO_PROXY ?=
+JIRA_HTTP_PROXY ?=
+JIRA_HTTPS_PROXY ?=
+CONFLUENCE_HTTP_PROXY ?=
+CONFLUENCE_HTTPS_PROXY ?=
+
 .PHONY: help
 help: ## Show this help message
 	@echo "MCP Atlassian - Container and OpenShift Deployment"
@@ -74,6 +83,15 @@ help: ## Show this help message
 	@echo "  CONFLUENCE_URL     Confluence instance URL"
 	@echo "  CONFLUENCE_USERNAME + CONFLUENCE_API_TOKEN  OR  CONFLUENCE_PERSONAL_TOKEN"
 	@echo ""
+	@echo "Proxy configuration (for corporate firewalls):"
+	@echo "  HTTP_PROXY         Global HTTP proxy URL"
+	@echo "  HTTPS_PROXY        Global HTTPS proxy URL"
+	@echo "  NO_PROXY           Comma-separated bypass hosts"
+	@echo "  JIRA_HTTP_PROXY    Jira-specific HTTP proxy (overrides HTTP_PROXY)"
+	@echo "  JIRA_HTTPS_PROXY   Jira-specific HTTPS proxy (overrides HTTPS_PROXY)"
+	@echo "  CONFLUENCE_HTTP_PROXY   Confluence-specific HTTP proxy"
+	@echo "  CONFLUENCE_HTTPS_PROXY  Confluence-specific HTTPS proxy"
+	@echo ""
 	@echo "Configuration defaults:"
 	@echo "  READ_ONLY_MODE=true    Security default (set to false for write operations)"
 	@echo "  ENABLE_CONFLUENCE=false  Jira-only by default"
@@ -85,6 +103,8 @@ help: ## Show this help message
 	@echo "  make deploy JIRA_URL=https://company.atlassian.net JIRA_USERNAME=user@company.com JIRA_API_TOKEN=xxx"
 	@echo "  # With Confluence enabled"
 	@echo "  make deploy ENABLE_CONFLUENCE=true JIRA_URL=... CONFLUENCE_URL=... JIRA_PERSONAL_TOKEN=xxx CONFLUENCE_PERSONAL_TOKEN=yyy"
+	@echo "  # With corporate proxy"
+	@echo "  make deploy JIRA_URL=... JIRA_PERSONAL_TOKEN=xxx HTTP_PROXY=http://squid.corp.acme.com:3128 HTTPS_PROXY=http://squid.corp.acme.com:3128"
 
 # Container targets
 .PHONY: build
@@ -161,7 +181,7 @@ setup-deploy-dir:
 .PHONY: generate-manifests
 generate-manifests: setup-deploy-dir check-deploy-vars ## Generate OpenShift manifests from templates
 	@echo "Generating manifests for namespace $(NAMESPACE)..."
-	
+
 	# Generate secrets.yaml
 	@sed 's|{{NAMESPACE}}|$(NAMESPACE)|g; \
 		s|{{JIRA_URL}}|$(JIRA_URL)|g; \
@@ -174,7 +194,7 @@ generate-manifests: setup-deploy-dir check-deploy-vars ## Generate OpenShift man
 		s|{{CONFLUENCE_PERSONAL_TOKEN}}|$(CONFLUENCE_PERSONAL_TOKEN)|g; \
 		s|{{ENABLE_CONFLUENCE}}|$(ENABLE_CONFLUENCE)|g' \
 		$(TEMPLATES_DIR)/secrets.yaml.template > $(ARTIFACTS_DIR)/secrets.yaml
-	
+
 	# Generate deployment.yaml
 	@sed 's|{{NAMESPACE}}|$(NAMESPACE)|g; \
 		s|{{IMAGE}}|$(FULL_IMAGE)|g; \
@@ -184,16 +204,16 @@ generate-manifests: setup-deploy-dir check-deploy-vars ## Generate OpenShift man
 		s|{{MCP_VERBOSE}}|$(MCP_VERBOSE)|g; \
 		s|{{ENABLE_CONFLUENCE}}|$(ENABLE_CONFLUENCE)|g' \
 		$(TEMPLATES_DIR)/deployment.yaml.template > $(ARTIFACTS_DIR)/deployment.yaml
-	
+
 	# Generate service.yaml
 	@sed 's|{{NAMESPACE}}|$(NAMESPACE)|g; \
 		s|{{MCP_PORT}}|$(MCP_PORT)|g' \
 		$(TEMPLATES_DIR)/service.yaml.template > $(ARTIFACTS_DIR)/service.yaml
-	
+
 	# Generate route.yaml
 	@sed 's|{{NAMESPACE}}|$(NAMESPACE)|g' \
 		$(TEMPLATES_DIR)/route.yaml.template > $(ARTIFACTS_DIR)/route.yaml
-	
+
 	@echo "Manifests generated in $(ARTIFACTS_DIR)/"
 
 .PHONY: deploy-secrets
@@ -266,7 +286,29 @@ deploy-dynamic: check-oc ## Deploy with dynamic manifest generation (only includ
 		echo "Error: JIRA_URL is required"; \
 		exit 1; \
 	fi
-	@if [ -n "$(JIRA_PERSONAL_TOKEN)" ]; then \
+	@PROXY_ARGS=""; \
+	if [ -n "$(HTTP_PROXY)" ]; then \
+		PROXY_ARGS="$$PROXY_ARGS --http-proxy $(HTTP_PROXY)"; \
+	fi; \
+	if [ -n "$(HTTPS_PROXY)" ]; then \
+		PROXY_ARGS="$$PROXY_ARGS --https-proxy $(HTTPS_PROXY)"; \
+	fi; \
+	if [ -n "$(NO_PROXY)" ]; then \
+		PROXY_ARGS="$$PROXY_ARGS --no-proxy $(NO_PROXY)"; \
+	fi; \
+	if [ -n "$(JIRA_HTTP_PROXY)" ]; then \
+		PROXY_ARGS="$$PROXY_ARGS --jira-http-proxy $(JIRA_HTTP_PROXY)"; \
+	fi; \
+	if [ -n "$(JIRA_HTTPS_PROXY)" ]; then \
+		PROXY_ARGS="$$PROXY_ARGS --jira-https-proxy $(JIRA_HTTPS_PROXY)"; \
+	fi; \
+	if [ -n "$(CONFLUENCE_HTTP_PROXY)" ]; then \
+		PROXY_ARGS="$$PROXY_ARGS --confluence-http-proxy $(CONFLUENCE_HTTP_PROXY)"; \
+	fi; \
+	if [ -n "$(CONFLUENCE_HTTPS_PROXY)" ]; then \
+		PROXY_ARGS="$$PROXY_ARGS --confluence-https-proxy $(CONFLUENCE_HTTPS_PROXY)"; \
+	fi; \
+	if [ -n "$(JIRA_PERSONAL_TOKEN)" ]; then \
 		echo "Using Personal Access Token authentication"; \
 		./scripts/generate-dynamic-manifests.sh \
 			--jira-url "$(JIRA_URL)" \
@@ -276,7 +318,8 @@ deploy-dynamic: check-oc ## Deploy with dynamic manifest generation (only includ
 			--read-only "$(READ_ONLY_MODE)" \
 			--verbose "$(MCP_VERBOSE)" \
 			--transport "$(TRANSPORT)" \
-			--port "$(MCP_PORT)"; \
+			--port "$(MCP_PORT)" \
+			$$PROXY_ARGS; \
 	elif [ -n "$(JIRA_API_TOKEN)" ] && [ -n "$(JIRA_USERNAME)" ]; then \
 		echo "Using API Token authentication"; \
 		./scripts/generate-dynamic-manifests.sh \
@@ -287,7 +330,8 @@ deploy-dynamic: check-oc ## Deploy with dynamic manifest generation (only includ
 			--read-only "$(READ_ONLY_MODE)" \
 			--verbose "$(MCP_VERBOSE)" \
 			--transport "$(TRANSPORT)" \
-			--port "$(MCP_PORT)"; \
+			--port "$(MCP_PORT)" \
+			$$PROXY_ARGS; \
 	else \
 		echo "Error: Either JIRA_PERSONAL_TOKEN or (JIRA_USERNAME + JIRA_API_TOKEN) is required"; \
 		exit 1; \
