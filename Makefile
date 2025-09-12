@@ -33,7 +33,7 @@ CONFLUENCE_PERSONAL_TOKEN ?=
 
 # Optional configuration with defaults
 MCP_PORT ?= 8000
-TRANSPORT ?= streamable-http
+TRANSPORT ?= sse
 READ_ONLY_MODE ?= true
 MCP_VERBOSE ?= true
 ENABLE_CONFLUENCE ?= false
